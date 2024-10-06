@@ -1,0 +1,22 @@
+{
+  "name": "koishi-plugin-quark-search-lizard",
+  "description": "根据关键词搜索夸克网盘中的各种资源",
+  "version": "0.0.1",
+  "main": "lib/index.js",
+  "typings": "lib/index.d.ts",
+  "files": [
+    "lib",
+    "dist"
+  ],
+  "license": "MIT",
+  "scripts": {},
+  "keywords": [
+    "chatbot",
+    "koishi",
+    "plugin"
+  ],
+  "devDependencies": {},
+  "peerDependencies": {
+    "koishi": "4.18.0"
+  }
+}
