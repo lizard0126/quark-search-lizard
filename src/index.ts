@@ -1,23 +1,25 @@
-import { Context } from 'koishi'
-import Schema from 'schemastery'
+import { Context } from 'koishi';
+import Schema from 'schemastery';
+// npm publish --workspace koishi-plugin-quark-search-lizard --access public --registry https://registry.npmjs.org
 
-export const name = 'quark-search-lizard'
+export const name = 'quark-search-lizard';
 
 export const usage = `
 # 开箱即用的夸克网盘资源搜索插件
 ## 主要功能及示例调用：
 - 影视资源搜索：用户可以通过关键词搜索夸克网盘资源，返回夸克网盘链接
-  
+
   - 示例指令：资源搜索 关键词
     - 返回结果：至多5条资源数据以及分页页码，默认第一页
-  
-  - 示例指令：资源搜索 -p 2 关键词
-    - 返回结果：至多5条资源数据以及分页页码的第二页
+  - 根据提示继续发送页码：2
+    - 返回结果：数据的第二页
+## 本次更新：
+- 将页码选择方式改为中间件监听，无需以参数方式获取
 ## todo：
 - 解析夸克网盘链接（有生之年大概会做……）
 
-- ……  
-`
+- ……
+`;
 
 export interface Config {
   apiUrl: string;
@@ -27,12 +29,12 @@ export const Config = Schema.object({
   apiUrl: Schema.string()
     .default('https://www.hhlqilongzhu.cn/api/duanju_cat.php')
     .description('默认API请勿更改'),
-})
+});
 
 export const searchResourceApi = '?name=';
 
 export function apply(ctx: Context, config: Config) {
-  async function fetchResourceByKeyword(keyword: string, page: number) {
+  async function fetchResourceByKeyword(keyword: string) {
     const searchUrl = config.apiUrl + searchResourceApi + encodeURIComponent(keyword);
     ctx.logger.info(`Fetching resource with keyword: ${keyword}`);
     ctx.logger.debug(`Search URL: ${searchUrl}`);
@@ -43,49 +45,94 @@ export function apply(ctx: Context, config: Config) {
 
       if (!response || !response.data || !Array.isArray(response.data)) {
         ctx.logger.warn('No matching resource found or unexpected response structure!');
-        return '未找到任何匹配的夸克网盘资源！';
+        return null;
       }
 
-      const resourcePerPage = 5;
-      const totalResource = response.data.length;
-      const totalPages = Math.ceil(totalResource / resourcePerPage);
-
-      if (page > totalPages) {
-        return `请勿超出页码范围`;
-      }
-
-      const startIndex = (page - 1) * resourcePerPage;
-      const paginatedResource = response.data.slice(startIndex, startIndex + resourcePerPage);
-
-      const result = paginatedResource.map((data) => {
-        const { title, url } = data;
-        return `标题: ${title}\n下载链接: ${url}`;
-      });
-
-      return result.join('\n\n') + `\n\n第 ${page} 页，共 ${totalPages} 页`;
+      return response.data;
     } catch (err) {
       ctx.logger.error('Error fetching resource:', err);
-      return `发生错误!; ${err}`;
+      return null;
     }
   }
 
-  // 使用 command 定义搜索命令，并正确解析选项和参数
-  ctx.command('资源搜索 <keyword:text>', '搜索夸克网盘资源')
-    .option('page', '-p <page:number>', { fallback: 1 })  // 定义分页参数
-    .action(async ({ options, session }, keyword) => {
+  async function listenForPageSelection(session, resourceData) {
+    const totalPages = Math.ceil(resourceData.length / 5);
+    let page = 1;
+    const timeoutDuration = 15 * 1000;
+    let errorCount = 0;
+    const maxErrorCount = 3;
+    let isSearchActive = true;
+
+    if (!Array.isArray(resourceData)) {
+      ctx.logger.error('Invalid resourceData: not an array!');
+      session.send('发生错误，无法处理资源数据。');
+      return;
+    }
+
+    const sendPageResults = (page) => {
+      const paginatedResource = resourceData.slice((page - 1) * 5, page * 5);
+      return paginatedResource.map(({ title, url }) => `标题: ${title}\n下载链接: ${url}`).join('\n\n')
+        + `\n\n第 ${page} 页，共 ${totalPages} 页`;
+    };
+
+    const endSearch = (reason) => {
+      isSearchActive = false;
+      ctx.logger.info(`Ending search: ${reason}`);
+      session.send(reason);
+    };
+
+    const startTimer = () => setTimeout(() => {
+      if (isSearchActive) {
+        endSearch('输入超时，搜索结束！');
+      }
+    }, timeoutDuration);
+
+    while (isSearchActive && errorCount < maxErrorCount) {
+      session.send(sendPageResults(page));
+
+      session.send('请输入页码 (数字)，或等待10秒退出搜索：');
+
+      const timer = startTimer();
+
       try {
-        if (!keyword) {
-          ctx.logger.warn('No keyword provided!');
-          return '请提供关键词!';
+        const userInput = await session.prompt(timeoutDuration);
+        clearTimeout(timer);
+
+        const userPageNumber = parseInt(userInput);
+
+        if (!isSearchActive) return;
+
+        if (!isNaN(userPageNumber) && userPageNumber >= 1 && userPageNumber <= totalPages) {
+          page = userPageNumber;
+        } else {
+          errorCount++;
+          if (errorCount >= maxErrorCount) {
+            endSearch('错误次数过多，搜索结束！');
+          } else {
+            session.send('无效的页码，请输入有效的数字！');
+          }
+        }
+      } catch (e) {
+        endSearch('输入超时，搜索结束！');
+      }
+    }
+  }
+
+  ctx.command('资源搜索 <keyword:text>', '搜索夸克网盘资源')
+    .action(async ({ session }, keyword) => {
+      try {
+        const resourceData = await fetchResourceByKeyword(keyword);
+        
+        if (!resourceData) {
+          session.send('未找到任何匹配的夸克网盘资源！');
+          return;
         }
 
-        const page = options.page || 1;  // 从选项中获取分页参数
-        ctx.logger.info(`Searching for resource with keyword: ${keyword} on page ${page}`);
-        const result = await fetchResourceByKeyword(keyword, page);
-        return result;
+        ctx.logger.info(`Starting resource search for keyword: ${keyword}`);
+        await listenForPageSelection(session, resourceData);
       } catch (err) {
         ctx.logger.error('Error during resource search:', err);
-        return `发生错误!; ${err}`;
+        session.send(`发生错误!; ${err}`);
       }
     });
 }
