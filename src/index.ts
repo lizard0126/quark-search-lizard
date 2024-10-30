@@ -1,7 +1,5 @@
-import { Context } from 'koishi';
-import Schema from 'schemastery';
+import { Context, Schema } from 'koishi';
 // npm publish --workspace koishi-plugin-quark-search-lizard --access public --registry https://registry.npmjs.org
-
 export const name = 'quark-search-lizard';
 
 export const usage = `
@@ -14,7 +12,7 @@ export const usage = `
   - 根据提示继续发送页码：2
     - 返回结果：数据的第二页
 ## 本次更新：
-- 将页码选择方式改为中间件监听，无需以参数方式获取
+- 优化代码结构，添加手动结束方式
 ## todo：
 - 解析夸克网盘链接（有生之年大概会做……）
 
@@ -36,8 +34,8 @@ export const searchResourceApi = '?name=';
 export function apply(ctx: Context, config: Config) {
   async function fetchResourceByKeyword(keyword: string) {
     const searchUrl = config.apiUrl + searchResourceApi + encodeURIComponent(keyword);
-    ctx.logger.info(`Fetching resource with keyword: ${keyword}`);
-    ctx.logger.debug(`Search URL: ${searchUrl}`);
+    //ctx.logger.info(`Fetching resource with keyword: ${keyword}`);
+    //ctx.logger.debug(`Search URL: ${searchUrl}`);
 
     try {
       const responseString = await ctx.http.get(searchUrl);
@@ -63,21 +61,15 @@ export function apply(ctx: Context, config: Config) {
     const maxErrorCount = 3;
     let isSearchActive = true;
 
-    if (!Array.isArray(resourceData)) {
-      ctx.logger.error('Invalid resourceData: not an array!');
-      session.send('发生错误，无法处理资源数据。');
-      return;
-    }
-
     const sendPageResults = (page) => {
       const paginatedResource = resourceData.slice((page - 1) * 5, page * 5);
-      return paginatedResource.map(({ title, url }) => `标题: ${title}\n下载链接: ${url}`).join('\n\n')
-        + `\n\n第 ${page} 页，共 ${totalPages} 页`;
+      return paginatedResource.map(({ title, url }) => `标题: ${title}\n下载链接: ${url}`).join('\n\n') +
+        `\n\n第 ${page} 页，共 ${totalPages} 页`;
     };
 
     const endSearch = (reason) => {
       isSearchActive = false;
-      ctx.logger.info(`Ending search: ${reason}`);
+      //ctx.logger.info(`Ending search: ${reason}`);
       session.send(reason);
     };
 
@@ -89,14 +81,18 @@ export function apply(ctx: Context, config: Config) {
 
     while (isSearchActive && errorCount < maxErrorCount) {
       session.send(sendPageResults(page));
-
-      session.send('请输入页码 (数字)，或等待10秒退出搜索：');
+      session.send('请输入页码 (数字)\n\n输入“0”或等待超时以结束搜索');
 
       const timer = startTimer();
 
       try {
         const userInput = await session.prompt(timeoutDuration);
         clearTimeout(timer);
+
+        if (userInput === '0') {
+          endSearch('搜索已手动结束。');
+          return;
+        }
 
         const userPageNumber = parseInt(userInput);
 
@@ -128,11 +124,11 @@ export function apply(ctx: Context, config: Config) {
           return;
         }
 
-        ctx.logger.info(`Starting resource search for keyword: ${keyword}`);
+        //ctx.logger.info(`Starting resource search for keyword: ${keyword}`);
         await listenForPageSelection(session, resourceData);
       } catch (err) {
         ctx.logger.error('Error during resource search:', err);
-        session.send(`发生错误!; ${err}`);
+        session.send(`发生错误: ${err.message}`);
       }
     });
 }
