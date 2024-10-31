@@ -118,7 +118,7 @@ export function apply(ctx: Context, config: Config) {
     .action(async ({ session }, keyword) => {
       try {
         const resourceData = await fetchResourceByKeyword(keyword);
-        
+
         if (!resourceData) {
           session.send('未找到任何匹配的夸克网盘资源！');
           return;

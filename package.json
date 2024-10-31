@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-quark-search-lizard",
   "description": "根据关键词搜索夸克网盘中的各种资源",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/lizard0126/quark-search-lizard"
@@ -19,9 +19,6 @@
     "quark"
   ],
   "peerDependencies": {
-    "koishi": "4.18.0"
-  },
-  "dependencies": {
-    "schemastery": "^3.14.6"
+    "koishi": "^4.18.0"
   }
 }
